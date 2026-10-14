@@ -1,0 +1,75 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+  --radius-xl: 32px;
+
+  --font-sans: var(--font-sans);
+  --font-display: var(--font-display);
+}
+
+:root {
+  /* UI-UX-SPEC §1.2 color tokens */
+  --background: #FFFFFF;
+  --surface: #F7F6F3;
+  --foreground: #0B1F2A;
+  --muted: #F7F6F3;
+  --muted-foreground: #5C6B73;
+  --primary: #0B1F2A;
+  --primary-foreground: #FFFFFF;
+  --secondary: #14565A;
+  --secondary-foreground: #FFFFFF;
+  --accent: #D9A441;
+  --accent-foreground: #0B1F2A;
+  --border: #E5E3DE;
+  --input: #E5E3DE;
+  --ring: #14565A;
+  --destructive: #B42318;
+  --destructive-foreground: #FFFFFF;
+  --success: #15803D;
+  --card: #FFFFFF;
+  --card-foreground: #0B1F2A;
+  --popover: #FFFFFF;
+  --popover-foreground: #0B1F2A;
+  --radius: 12px;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-sans;
+  }
+  .price {
+    font-variant-numeric: tabular-nums;
+  }
+}

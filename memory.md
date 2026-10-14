@@ -36,17 +36,17 @@ Open questions:
 
 ## Current phase
 
-**Phase 0 — Project Initialization. Not started.**
+**Phase 1 — Database Layer. Not started.**
 
-Nothing has been built. The working directory contains only `docs/`, `CLAUDE.md`, and this file. No `package.json`, no dependencies, no code.
-
-Next step: read `docs/DEVELOPMENT-PLAN.md`, Phase 0, and work through its task list.
+Next step: read `docs/DEVELOPMENT-PLAN.md`, Phase 1, and work through its task list.
 
 ---
 
 ## Last completed phase
 
-None.
+### Phase 0 — Project Initialization (2026-10-14)
+
+Scaffolded Next.js 16.4 (App Router, TypeScript, Tailwind v4, ESLint, Turbopack), shadcn/ui initialized with the base-nova preset, 17 baseline shadcn components in `components/ui/`, Fraunces + Inter fonts wired via `next/font`, UI-UX-SPEC color + radius tokens defined in `app/globals.css` via `@theme inline`, folder structure created with `.gitkeep` markers, `lib/constants.ts` with `CITIES` / `PROPERTY_TYPES` / `FURNISHING` / `SORT_OPTIONS`, `.env.example` with all 12 variables from CLAUDE.md §6. `npx tsc --noEmit`, `npm run lint`, and `npm run build` all clean.
 
 ---
 
@@ -74,6 +74,26 @@ None.
 - Reason: The rating is a browsing signal that helps a guest decide what to open, rather than review content itself. Gating it would leave guests with no quality signal at all. Rejected alternative: stripping both fields from public responses, which is more literally consistent with "guests cannot see reviews" but makes the listing cards noticeably less useful.
 - Affects: `docs/PRODUCT-SPEC.md` BR-14, `docs/API.md` sections 5 and 6, the `PropertyCard` component.
 
+### 2026-10-14 — Display + body fonts
+- Decision: Fraunces (display, weight 600, variable `--font-display`) + Inter (body, variable `--font-sans`), both loaded via `next/font/google`.
+- Reason: UI-UX-SPEC §1.3 names roles only ("display font", "neutral sans"), not families. Fraunces reads as "considered, not template" and holds the specified `-0.03em` tracking at the display size; Inter is a safe neutral sans with excellent tabular numerals for prices.
+- Affects: `app/layout.tsx`, `app/globals.css`.
+
+### 2026-10-14 — Tailwind v4 CSS-first config
+- Decision: Project uses Tailwind v4 (what Next.js 16 scaffolds). All design tokens — colors, radius, fonts — live in `app/globals.css` inside `@theme inline`. There is NO `tailwind.config.ts` file.
+- Reason: Next 16 ships Tailwind 4 by default. Fighting that would mean downgrading to Tailwind 3 and overriding the PostCSS setup. UI-UX-SPEC §1 token *values* are unaffected; only the config *location* changes from the DEVELOPMENT-PLAN Phase 0 reference to `tailwind.config.ts`. The CLAUDE.md component rule ("no raw hex in components") is enforced the same way via these variables.
+- Affects: `app/globals.css` (holds every token), reference to `tailwind.config.ts` in `docs/DEVELOPMENT-PLAN.md` Phase 0's "Files affected" list is now historical.
+
+### 2026-10-14 — shadcn base-nova preset
+- Decision: Used `shadcn init -y -d`, which installs the `base-nova` preset. This brings `@base-ui/react` (not `@radix-ui/*`) as the primitive library, the `cn` npm package in `lib/utils.ts`, `tw-animate-css` for animations, and `lucide-react` icons.
+- Reason: Modern shadcn v4 defaults; same team as Radix, same component contract. Fighting the default (pinning Radix-based shadcn) is not worth the maintenance tax.
+- Affects: `components/ui/*`, `components.json`, `package.json`, `lib/utils.ts`.
+
+### 2026-10-14 — shadcn `form` component deferred to Phase 2
+- Decision: 17 of the 18 shadcn components requested in the playbook were installed in Phase 0. `form` was skipped by shadcn-add because it depends on `react-hook-form`, which is not a Phase 0 dependency.
+- Reason: Phase 0 scope forbids auth/form deps. Phase 2 installs React Hook Form + Zod; add `form` there.
+- Affects: Phase 2 task list — add `npx shadcn@latest add form` as a prerequisite before building the auth pages.
+
 ---
 
 ## Open questions for user
@@ -84,7 +104,14 @@ None.
 
 ## Things to remember for next session
 
-- [2026-09-21] Nothing has been built yet. Start with Phase 0 in `docs/DEVELOPMENT-PLAN.md`.
 - [2026-09-21] The specification in `docs/` is FROZEN. Do not improve or reconcile it. If two documents contradict each other, stop and ask the user.
 - [2026-09-21] The FUTURE list in `docs/PRODUCT-SPEC.md` section 5 is a do-not-build list, not a backlog.
 - [2026-09-21] Never install a dependency without asking first.
+- [2026-10-14] 17 shadcn components live in `components/ui/`. Restyle in place; do not override per call site.
+- [2026-10-14] All design tokens live in `app/globals.css` (`@theme inline` + `:root`). There is no `tailwind.config.ts`.
+- [2026-10-14] shadcn uses `@base-ui/react`, not `@radix-ui/*`. Component imports read `from "@base-ui/react/<primitive>"`.
+- [2026-10-14] `cn` helper is a re-export from the `cn` npm package in `lib/utils.ts`. API is identical to the classic `clsx + tailwind-merge` wrapper.
+- [2026-10-14] `AGENTS.md` at the repo root is auto-regenerated by `next dev` on each boot. Do not delete; coexists with `CLAUDE.md`.
+- [2026-10-14] `components/ui/carousel.tsx:98` has one `eslint-disable-next-line react-hooks/set-state-in-effect` with a `ponytail:` comment — a shadcn-published pattern that needs a sync initial read against embla.
+- [2026-10-14] Default shadcn Button uses `rounded-lg` which maps to `--radius-lg = 20px` here. UI-UX-SPEC §1.5 says buttons want `--radius-md = 12px`. When Phase 3 touches the button, change the base class to `rounded-md`.
+
