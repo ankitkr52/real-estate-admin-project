@@ -36,13 +36,19 @@ Open questions:
 
 ## Current phase
 
-**Phase 2 — Authentication. Not started.**
+**Phase 3 — Public Browsing. Not started.**
 
-Next step: read `docs/DEVELOPMENT-PLAN.md`, Phase 2, and `docs/API.md` section 3. First install the shadcn `form` component (Phase 0 deferral) once React Hook Form and Zod are added.
+Next step: read `docs/DEVELOPMENT-PLAN.md`, Phase 3, and `docs/API.md` section 5. The public (public) layout and nav are already mounted from Phase 2; the home at `app/(public)/page.tsx` is still a Phase 0 placeholder waiting to be replaced.
 
 ---
 
 ## Last completed phase
+
+### Phase 2 — Authentication (2026-10-14)
+
+Seven auth API routes (register, verify-email, login, logout, forgot-password, reset-password, me) following the uniform `connectDB → safeParse → work → ok | handleError` shape with `lib/response.ts` helpers (`ok`, `fail`, `HttpError`, `handleError`). Stateless action tokens via `lib/token.ts` with mandatory `purpose` claim check (verify-email 24h, reset-password 1h); session via HttpOnly JWT cookie (`session`, 7d, SameSite=lax, Secure in prod only) managed in `lib/auth.ts` with `getSession`/`requireUser`/`requireAdmin` guards. Shared Zod schemas in `lib/validations/auth.ts` consumed by both routes and five RHF forms. In-memory LRU rate limiter in `lib/rate-limit.ts` (5/15min/IP) wired on login, register, forgot-password. `middleware.ts` on nodejs runtime guards `/favorites`, `/profile`, `/admin/*` with `?next=` redirect. TanStack Query provider at `app/providers.tsx`, `hooks/use-auth.ts` wraps GET /api/auth/me plus a logout mutation, `components/layout/nav.tsx` is the auth-aware pill nav mounted via `app/(public)/layout.tsx` (home moved from `app/page.tsx` to `app/(public)/page.tsx`), `app/(public)/profile/page.tsx` is the Phase-2 stub using Suspense around the cookie-reading subtree so Next 16's cacheComponents build passes. End-to-end verified: Resend delivered both verification and reset emails to `ankit72p@gmail.com` (last_event `delivered` returned from the Resend REST API with the new key), clicking the emailed verify URL flipped `isEmailVerified`, login set the HttpOnly cookie (unreadable from `document.cookie`), unverified-vs-wrong-password messages are distinct, unknown-email and wrong-password are identical, `forgot-password` responds the same for known+unknown addresses, a `verify-email` token POSTed to `/reset-password` is rejected `INVALID_TOKEN`, middleware redirects unauth `/profile` to `/login?next=%2Fprofile`, rate limiter trips at the 6th login attempt. `npx tsc --noEmit`, `npm run lint`, `npm run build` all clean; zero `any` in domain code.
+
+---
 
 ### Phase 1 — Database Layer (2026-10-14)
 
@@ -57,6 +63,43 @@ Scaffolded Next.js 16.4 (App Router, TypeScript, Tailwind v4, ESLint, Turbopack)
 ---
 
 ## Decisions log
+
+### 2026-10-14 — Rate limiting is in-memory LRU (not Redis)
+- Decision: `lib/rate-limit.ts` keeps a per-IP sliding-window token array inside an `lru-cache`. 5 requests / 15 min / IP / endpoint-key on login, register, forgot-password.
+- Reason: Phase 2 scope + lazy. In-memory survives one serverless instance; the project is a single Vercel deployment with low expected abuse. One `ponytail:` comment at `lib/rate-limit.ts` names the ceiling + Upstash upgrade path.
+- Consequence accepted: multi-instance fleets would need coordinated storage. Not a concern until the app scales out.
+- Affects: `lib/rate-limit.ts`, `app/api/auth/{login,register,forgot-password}/route.ts`.
+
+### 2026-10-14 — Middleware runs on `nodejs` runtime (not edge)
+- Decision: `middleware.ts` has `export const runtime = "nodejs"`. It uses `jsonwebtoken.verify` to validate the session cookie.
+- Reason: `jsonwebtoken` relies on `node:crypto`, unavailable in the default edge runtime. Rejected alternative: swap to `jose` for edge compatibility, which would add a second JWT library just to satisfy middleware's runtime. The nodejs runtime is a single-line toggle in Next 16.
+- Consequence accepted: middleware runs on serverless Node rather than at the edge, adding a few ms of cold start. Middleware is a UX convenience, not a security boundary — API routes guard themselves.
+- Affects: `middleware.ts`.
+
+### 2026-10-14 — shadcn `form` not installed; use RHF `register()` with existing shadcn Input/Label directly
+- Decision: `npx shadcn@latest add form` exits silently on the `base-nova` style (likely a registry gap). Rather than fight it, the five auth forms use `useForm({ resolver: zodResolver(schema) })` with plain `<Input {...register("field")}>` + `<Label>` + a tiny `<p className="text-destructive">`.
+- Reason: shadcn's `Form` component is a thin RHF-context wrapper; for 5 short forms the raw RHF API ships the same UX in fewer files, with no `FormField`/`FormItem`/`FormControl`/`FormMessage` ceremony. Phase 0 memory's "Phase 2 should add form" is superseded by this.
+- Affects: `app/(auth)/{login,register,verify-email,forgot-password,reset-password}/page.tsx`.
+
+### 2026-10-14 — Base-nova shadcn `Button` lacks `asChild`; link-with-buttonVariants fallback
+- Decision: Where auth pages wanted `<Button asChild><Link/></Button>`, they now use `<Link className={buttonVariants({variant: "outline"})}>`. The base-nova Button props type does not include `asChild`.
+- Reason: Lazy — don't modify a shadcn-owned component to add asChild just to save a few style props at call sites. `buttonVariants` is already exported from `components/ui/button.tsx`.
+- Affects: all five auth pages.
+
+### 2026-10-14 — EMAIL_NOT_VERIFIED login state has no "Resend verification" action
+- Decision: `/login`'s `EMAIL_NOT_VERIFIED` renders an amber block with "Verify your email before logging in. Check your inbox for the verification link." but **no Resend action**. UI-UX §5.4 wants one; the frozen API has no resend-verification endpoint.
+- Reason: Frozen-API-wins. The three alternatives were: add a non-frozen endpoint (violates CLAUDE.md), re-POST register which would always 409 (unusable), or omit the action (chosen). The user confirmed this choice in Phase 2 planning.
+- Affects: `app/(auth)/login/page.tsx`.
+
+### 2026-10-14 — Home page moved into `app/(public)/` route group
+- Decision: `app/page.tsx` moved to `app/(public)/page.tsx`; `app/(public)/layout.tsx` created and mounts the shared `Nav`. Admin and auth pages do not see the public layout.
+- Reason: Matches `docs/UI-UX-SPEC.md §4` (home shares the public pill-nav layout) and the folder sketch in `CLAUDE.md §3`. Phase 0 had created the empty `(public)/` folder but hadn't moved the home in.
+- Affects: `app/(public)/page.tsx`, `app/(public)/layout.tsx`.
+
+### 2026-10-14 — `/profile` server component wraps data in `<Suspense>` for Cache Components build
+- Decision: `app/(public)/profile/page.tsx` splits into an outer `ProfilePage` (static shell) and an inner async `ProfileContent` wrapped in `<Suspense>`. The cookie read + DB query live only inside `ProfileContent`.
+- Reason: Next 16 has `experimental.cacheComponents` enabled by default, which forbids both `export const dynamic = "force-dynamic"` and uncached cookie/db access during prerender. Suspense is the recommended path — static shell is prerendered, dynamic subtree streams in on request.
+- Affects: `app/(public)/profile/page.tsx`.
 
 ### 2026-09-21 — Documentation-only session; specification frozen
 - Decision: The project specification was written to `docs/` as 5 documents plus `CLAUDE.md` and this file. No code was written, no dependencies installed, no scaffolding created.
@@ -131,6 +174,13 @@ None.
 
 ## Things to remember for next session
 
+- [2026-10-14] Phase 2 reseeded admin at `ankit72p@gmail.com` with a NEW `_id`. Hard-coded admin references, if any Phase 3+ code introduces them, must be re-fetched after any further reseed. Properties were untouched (6 existed, 0 inserted).
+- [2026-10-14] Resend account is in testing mode (no verified domain). It will only deliver to the account owner's email (`ankit72p@gmail.com`), strict equality — + aliases are rejected. For Phase 8 production delivery, verify a sending domain in the Resend dashboard and update `EMAIL_FROM`.
+- [2026-10-14] `EMAIL_FROM` is `onboarding@resend.dev` in dev (`.env.local`). Must change to a verified-domain address before production.
+- [2026-10-14] The home page lives at `app/(public)/page.tsx`, not `app/page.tsx`. Phase 3 edits the former; the latter does not exist.
+- [2026-10-14] Nav mounts via `app/(public)/layout.tsx`. Auth pages have their own `app/(auth)/layout.tsx` (centered card, no nav), as specified in UI-UX §5.4–5.8.
+- [2026-10-14] Protected server pages that read cookies / do DB queries must wrap the data read in `<Suspense>` because of Next 16's cacheComponents. See `app/(public)/profile/page.tsx` for the pattern. `export const dynamic = "force-dynamic"` throws a build error.
+- [2026-10-14] Middleware uses `runtime = "nodejs"` for `jsonwebtoken.verify`. If anything in Phase 3+ needs edge-only behavior from middleware, swap in `jose` instead.
 - [2026-09-21] The specification in `docs/` is FROZEN. Do not improve or reconcile it. If two documents contradict each other, stop and ask the user.
 - [2026-09-21] The FUTURE list in `docs/PRODUCT-SPEC.md` section 5 is a do-not-build list, not a backlog.
 - [2026-09-21] Never install a dependency without asking first.
