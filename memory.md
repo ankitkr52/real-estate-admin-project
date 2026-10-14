@@ -36,13 +36,19 @@ Open questions:
 
 ## Current phase
 
-**Phase 3 — Public Browsing. Not started.**
+**Phase 4 — User Features. Not started.**
 
-Next step: read `docs/DEVELOPMENT-PLAN.md`, Phase 3, and `docs/API.md` section 5. The public (public) layout and nav are already mounted from Phase 2; the home at `app/(public)/page.tsx` is still a Phase 0 placeholder waiting to be replaced.
+Next step: read `docs/DEVELOPMENT-PLAN.md`, Phase 4, and `docs/API.md` sections 4 and 6. Phase 3 shipped the two public property endpoints, the home / listing / detail pages, the shared empty/error primitives, and the footer. The favorite heart renders on the card and detail page but is NOT wired — guest tap redirects to `/login?next=…`; Phase 4 wires the mutation. The reviews slot on the detail page is a bordered log-in prompt; Phase 5 fills it.
 
 ---
 
 ## Last completed phase
+
+### Phase 3 — Public Browsing (2026-10-14)
+
+Two public property API endpoints (`GET /api/properties`, `GET /api/properties/:id`) following the uniform `connectDB → safeParse → work → ok | handleError` shape with the frozen contract in `docs/API.md §5`. Filters schema in `lib/validations/property.ts` (coerced numbers, enum constraints on city/type/furnishing, dual range `.refine` for price and area). The listing route forces `status: "published"` server-side (never overridable), supports all 8 filters + 3 sorts, paginates with a real `countDocuments`, caps `limit` at 48 to prevent whole-collection fetches, and returns a card payload stripped of description/address/contact/viewCount. The detail route validates `ObjectId` (400 on invalid), combines the published-only read + atomic `$inc` on viewCount into one `findOneAndUpdate`, and computes `isFavorited` only when a session exists. `components/property/*` ships card + skeleton (equal dimensions, no CLS), grid, horizontal/sheet dual filter bar with applied-count badge, filter chips with individual removal + clear-all, sort select, prev/numbered/next pagination that preserves all other params, and the carousel gallery. `hooks/use-property-filters.ts` makes the URL query string the sole source of truth (debounced 400ms for numeric inputs; `resetSignal` increments on chip-remove and clear-all so uncontrolled number inputs can be remounted via `key` without being wiped mid-typing). The listing page wraps `useSearchParams` in `<Suspense>` for Next 16 cacheComponents; the detail page wraps `use(params)` the same way; both found during `npm run build`. The home page composes a framed-stillness hero (custom, no Aceternity), the §3.4 asymmetric city bento (6/3/3 at `lg`, degrades to 2+2×2 at `md`, stacks at base, per-city count via `useQueries` on 8 `limit=1` fetches), the newest-6 grid, a city-pick CTA banner, and the four-column footer. `<Toaster/>` mounted in `app/providers.tsx` (missing from Phase 2 — surfaced when the share-copy toast test came back empty). `SORT_OPTIONS` in `lib/constants.ts` was flipped from `price-asc`/`price-desc` to `price_asc`/`price_desc` to match the frozen API spec. End-to-end verified via Playwright: draft id → 404 page (identical to not-found, existence never leaked), filter URL round-trip identical after reload, URL chips reflect state, viewCount increments by exactly 1 per API hit (confirmed against MongoDB), Plot detail page has zero "BHK" text in the DOM, furnishing row omitted when unset (not "N/A"), WhatsApp link = `wa.me/91<10digits>?text=<encoded title + url>`, tel link = `tel:+91<10digits>`, guest heart tap pushes `/login?next=/properties` with zero API calls, grid is 1/2/3 cols at 375/768/1440, Sheet-trigger filter appears at base width, Share-copy toast reads "Link copied". `npx tsc --noEmit`, `npm run lint`, and `npm run build` all clean; zero raw hex outside `app/globals.css`; zero `any` in domain code.
+
+---
 
 ### Phase 2 — Authentication (2026-10-14)
 
@@ -63,6 +69,46 @@ Scaffolded Next.js 16.4 (App Router, TypeScript, Tailwind v4, ESLint, Turbopack)
 ---
 
 ## Decisions log
+
+### 2026-10-14 — Home hero is custom (framed stillness), no Aceternity, no framer-motion
+- Decision: `components/home/hero.tsx` is a hand-rolled framed hero: one full-bleed Cloudinary architectural photo (from the seed set) inside a `rounded-[32px]` container, dark gradient scrim bottom-to-top, Fraunces display headline, Inter subhead, one amber CTA to `/properties`, three stat badges (Properties count via `/api/properties?limit=1`, `CITIES.length`, "Verified listings 100%"). Motion is `tw-animate-css` fade+slide-in-up on headline/CTA/stats, disabled by `motion-reduce:`.
+- Reason: Aceternity's hero blocks are motion-first (sparkles, aurora, beams) and read SaaS not real-estate. For a frame-with-one-still-image hero, pulling Aceternity means a dependency + copied files we'd edit to taste anyway. Ponytail call. `framer-motion` also skipped — `tw-animate-css` is already installed and covers the whole motion budget.
+- Affects: `components/home/hero.tsx`, `app/(public)/page.tsx`. No `package.json` change.
+
+### 2026-10-14 — SORT_OPTIONS values aligned to frozen API spec (underscores)
+- Decision: `lib/constants.ts` `SORT_OPTIONS` values flipped from `price-asc`/`price-desc` (dashes, from Phase 0) to `price_asc`/`price_desc` (underscores, matching `docs/API.md §5`). Zod enum on the API route uses the underscore values.
+- Reason: `docs/` is frozen. Phase 0 wrote the constant with dashes; the frozen API contract uses underscores. The API spec wins; Phase 3 aligns the constant.
+- Affects: `lib/constants.ts`, `components/property/property-sort.tsx`, `lib/validations/property.ts`.
+
+### 2026-10-14 — Favorite heart on guest = router.push(/login?next=…), not a modal
+- Decision: Card + detail-page favorite button, when the user is not logged in, pushes to `/login?next=<current-path>` instead of opening a modal. Phase 4 will wire the mutation for logged-in users.
+- Reason: Lazy — one less piece of state, meets the acceptance criterion ("tapping as a guest opens the login prompt"). The existing `/login` already handles `?next=` from Phase 2 middleware.
+- Affects: `components/property/property-card.tsx`, `app/(public)/properties/[id]/page.tsx`.
+
+### 2026-10-14 — Per-city bento counts via 8 `limit=1` fetches, not an aggregate endpoint
+- Decision: `components/home/city-bento.tsx` uses TanStack `useQueries` to issue one `GET /api/properties?city=<X>&limit=1` per city, reading `pagination.total`. Tiles show `—` on loading or error; never crash.
+- Reason: The frozen API has no `GET /api/cities/counts` endpoint and the FUTURE list forbids adding one. Eight cheap requests cached 5 min on the client is the simplest shape within scope. Load impact: 8 countDocuments against indexed status+city, each returning a single doc.
+- Affects: `components/home/city-bento.tsx`.
+
+### 2026-10-14 — Property detail route combines published-only read + $inc into one findOneAndUpdate
+- Decision: `app/api/properties/[id]/route.ts` calls `Property.findOneAndUpdate({ _id, status: "published" }, { $inc: { viewCount: 1 } }, { new: true, lean: true, projection: … })`. On no-match (draft or missing) → 404. The returned doc already reflects the incremented count.
+- Reason: Satisfies "404 if draft or missing" (via filter) and BR-10 "atomic $inc" in one DB round-trip. Avoids a read-then-write that could race.
+- Affects: `app/api/properties/[id]/route.ts`.
+
+### 2026-10-14 — Uncontrolled range filter inputs + resetSignal for external resets
+- Decision: Price-min/max and Area-min/max inputs are uncontrolled (`defaultValue={filters.X ?? ""}`), with `onChange` calling the hook's `setFilter` directly (hook debounces URL writes at 400ms). The hook exposes `resetSignal` (incremented in `removeFilter` and `clearAll`), used as `key` on each input so chip removal / Clear all forces a remount with fresh defaults.
+- Reason: ESLint `react-hooks/set-state-in-effect` rejects the obvious controlled-mirror pattern (useState + useEffect to sync from URL). A key tied to the URL value directly would remount mid-typing (hook writes URL → URL change → key change → input remounts). The `resetSignal` separates "user typing" from "external reset," so typing never remounts.
+- Affects: `hooks/use-property-filters.ts`, `components/property/property-filters.tsx`.
+
+### 2026-10-14 — Toaster mounted in `app/providers.tsx`, not every page
+- Decision: `<Toaster />` from `components/ui/sonner.tsx` renders once in `Providers`. Phase 2 shipped the sonner component but never mounted it; Phase 3 surfaced this when the share-copy toast test came back empty.
+- Reason: One mount in `Providers` covers every page including auth pages and admin shell. Toast-caller code uses `import { toast } from "sonner"` directly.
+- Affects: `app/providers.tsx`.
+
+### 2026-10-14 — Footer uses a hardcoded year
+- Decision: Footer legal line says `© 2026 Real Estate Portal`, not `${new Date().getFullYear()}`.
+- Reason: Next 16 cacheComponents forbids `new Date()` in client components under prerender ("unstable value"). Alternatives rejected: moving the Footer to a server component (then it can't be imported from the client home page), or forcing dynamic (fights cacheComponents). The year drifts once a year; a one-line edit then is cheaper than today's build-fight.
+- Affects: `components/layout/footer.tsx`.
 
 ### 2026-10-14 — Rate limiting is in-memory LRU (not Redis)
 - Decision: `lib/rate-limit.ts` keeps a per-IP sliding-window token array inside an `lru-cache`. 5 requests / 15 min / IP / endpoint-key on login, register, forgot-password.
@@ -168,12 +214,21 @@ Scaffolded Next.js 16.4 (App Router, TypeScript, Tailwind v4, ESLint, Turbopack)
 
 ## Open questions for user
 
-None.
+- [2026-10-14] Rating-chip visibility (card + detail) was NOT runtime-verified in Phase 3 because every seeded property has `reviewCount: 0`. The code path exists (`reviewCount > 0` guard, amber-ringed pill with aria-label "Rated X.X out of 5 from N reviews"); verify via Playwright once Phase 5 lands a seeded review.
+- [2026-10-14] Phase 2's Nav mounts above the hero as a sticky solid pill rather than floating inside the hero frame (per UI-UX §4's "floating pill inside the hero frame" rule for the home page specifically). Decision deferred: either patch Nav to detect `pathname === "/"` and render translucent inside the frame, or accept the Phase 2 shape. Flagged in case Phase 7 polish wants to address.
 
 ---
 
 ## Things to remember for next session
 
+- [2026-10-14] The 6 seed property `_id`s are now stable at: Mumbai 2BHK `6acf66b5231ebbe4c355d1ae`, Indiranagar 3BHK (draft) `6acf66b5231ebbe4c355d1af`, Pune Garden House `6acf66b5231ebbe4c355d1b0`, Hyderabad Villa `6acf66b5231ebbe4c355d1b1`, Chennai Plot `6acf66b5231ebbe4c355d1b2`, Delhi Office (draft) `6acf66b5231ebbe4c355d1b3`. 4 published, 2 draft. Will change after any drop+reseed.
+- [2026-10-14] Property-list card payload is intentionally stripped of `description`, `images`, `address`, `contactPhone`, `contactWhatsApp`, `viewCount`. Only the detail endpoint returns them. Phase 4 favorites list must either call the detail endpoint per item or we extend the card payload — the latter changes the frozen contract, so flagged.
+- [2026-10-14] Hero and bento city imagery is hardcoded Cloudinary URLs from the seed set (`realestate/seed/*`). The bento maps 5 cities to images (Mumbai, Bengaluru, Delhi, Pune, Hyderabad); the remaining 3 CITIES (Chennai, Kolkata, Ahmedabad) have no bento tile — the bento is a fixed 5-tile layout per UI-UX §3.4.
+- [2026-10-14] `hooks/use-property-filters.ts` exposes `resetSignal` — a counter the filter bar uses as a React `key` on each range `<Input>` so chip-remove and clear-all remount them. Required because the obvious useState/useEffect sync-from-URL pattern violates `react-hooks/set-state-in-effect`. Phase 4 forms can borrow the pattern if the same lint rule bites.
+- [2026-10-14] `app/providers.tsx` now mounts `<Toaster />` from `components/ui/sonner.tsx`. Any page can `import { toast } from "sonner"` and call `toast.success(...)` without extra setup.
+- [2026-10-14] `components/property/property-card.tsx` is the one-link card. The heart button inside it must `e.preventDefault()` AND `e.stopPropagation()` or the surrounding `<Link>` fires. Keep this invariant when Phase 4 wires the mutation.
+- [2026-10-14] The detail page is `"use client"` and uses `use(params)` wrapped in `<Suspense fallback={<DetailSkeleton/>}>`. Required for Next 16 cacheComponents or build fails with HANGING_PROMISE_REJECTION on prerender.
+- [2026-10-14] `components/layout/footer.tsx` has a hardcoded `© 2026`. Next 16 cacheComponents forbids `new Date()` in client components. Bump when the calendar does.
 - [2026-10-14] Phase 2 reseeded admin at `ankit72p@gmail.com` with a NEW `_id`. Hard-coded admin references, if any Phase 3+ code introduces them, must be re-fetched after any further reseed. Properties were untouched (6 existed, 0 inserted).
 - [2026-10-14] Resend account is in testing mode (no verified domain). It will only deliver to the account owner's email (`ankit72p@gmail.com`), strict equality — + aliases are rejected. For Phase 8 production delivery, verify a sending domain in the Resend dashboard and update `EMAIL_FROM`.
 - [2026-10-14] `EMAIL_FROM` is `onboarding@resend.dev` in dev (`.env.local`). Must change to a verified-domain address before production.
