@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { notFound, usePathname } from "next/navigation";
+import { notFound } from "next/navigation";
 import { Suspense, use } from "react";
 import { toast } from "sonner";
 import { Phone, MessageCircle, Share2, Star, Eye } from "lucide-react";
@@ -10,6 +10,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { PropertyGallery } from "@/components/property/property-gallery";
 import { FavoriteButton } from "@/components/property/favorite-button";
 import { ErrorState } from "@/components/shared/error-state";
+import { ReviewSection } from "@/components/review/review-section";
 import { useProperty } from "@/hooks/use-properties";
 import { formatPriceINRFull } from "@/lib/format";
 import { buildWaLink } from "@/lib/format";
@@ -32,7 +33,6 @@ export default function PropertyDetailPage({
 
 function PropertyDetailInner({ params }: { params: Promise<PageParams> }) {
   const { id } = use(params);
-  const pathname = usePathname();
 
   const query = useProperty(id);
 
@@ -217,38 +217,11 @@ function PropertyDetailInner({ params }: { params: Promise<PageParams> }) {
           </section>
 
           <section className="mt-12 border-t border-border pt-10">
-            <div className="flex items-end justify-between gap-4">
-              <div>
-                <h2 className="font-display text-2xl font-semibold tracking-[-0.02em]">
-                  Reviews
-                </h2>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {showRating ? (
-                    <>
-                      <span className="font-semibold text-foreground tabular-nums">
-                        {property.averageRating.toFixed(1)}
-                      </span>{" "}
-                      average from{" "}
-                      {property.reviewCount.toLocaleString("en-IN")}{" "}
-                      {property.reviewCount === 1 ? "review" : "reviews"}
-                    </>
-                  ) : (
-                    "No ratings yet"
-                  )}
-                </p>
-              </div>
-            </div>
-            <div className="mt-6 rounded-[var(--radius-lg)] border border-dashed border-border p-8 text-center">
-              <p className="text-sm text-muted-foreground">
-                Log in to read and write reviews.
-              </p>
-              <Link
-                href={`/login?next=${encodeURIComponent(pathname)}`}
-                className={`${buttonVariants({ variant: "outline", size: "lg" })} mt-4`}
-              >
-                Log in
-              </Link>
-            </div>
+            <ReviewSection
+              propertyId={property._id}
+              averageRating={property.averageRating}
+              reviewCount={property.reviewCount}
+            />
           </section>
         </div>
 

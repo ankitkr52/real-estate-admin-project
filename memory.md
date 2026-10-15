@@ -36,13 +36,21 @@ Open questions:
 
 ## Current phase
 
-**Phase 5 — Reviews. Not started.**
+**Phase 6 — Admin Panel. Not started.**
 
-Next step: read `docs/DEVELOPMENT-PLAN.md`, Phase 5, and `docs/API.md` section 6. Phase 4 shipped three favorites endpoints, one profile PATCH, the `/favorites` and `/profile` pages, the shared `FavoriteButton` and `ImageUpload` components, and the `useFavorites` + `useToggleFavorite` hooks. The reviews slot on the detail page is still a bordered log-in prompt; Phase 5 fills it with the review section, star rating UI, and the review Zod schema + POST/PATCH/DELETE/GET endpoints.
+Next step: read `docs/DEVELOPMENT-PLAN.md`, Phase 6, and `docs/API.md` sections 7 and 8. Phase 5 shipped four review endpoints (`GET`/`POST /api/properties/:id/reviews`, `PATCH`/`DELETE /api/reviews/:id`), the `ReviewSection` three-variant orchestrator, `StarRating` + `StarInput`, the `useReviews` hook family, and surgically replaced the Phase 3 "Log in to read and write reviews." placeholder on the detail page.
+
+**Frozen Phase 5 copy** (Phase 7 polish must not reword): the guest login prompt reads `"Log in to read and write reviews."` with a `"Log in"` button linking to `/login?next=/properties/<id>`. The empty state reads `"No reviews yet. Be the first."`
 
 ---
 
 ## Last completed phase
+
+### Phase 5 — Reviews (2026-10-15)
+
+Four review endpoints following the uniform `connectDB → requireUser → safeParse → work → ok | handleError` shape, all four require a session (BR-4, 401 for guests even on reads). `lib/validations/review.ts` ships `reviewCreateSchema` (`rating: z.coerce.number().int().min(1).max(5)`, `comment: z.string().trim().min(5).max(1000)`), `reviewUpdateSchema` with a `.refine` requiring at least one field, and `reviewListQuerySchema` for pagination. `GET /api/properties/:id/reviews` validates id (400 `INVALID_ID`), confirms property existence (404 `PROPERTY_NOT_FOUND`), lists newest-first with populated `user: { name, avatar }`, computes `isOwn` per review, and returns a separate `myReview` so the UI switches to edit without scanning the page. `POST` enforces published-only (404 for drafts), runs the pre-check for `REVIEW_EXISTS` (409), creates with a 11000 catch that translates duplicate-key errors to the SAME 409 message, calls `recalcPropertyRating`, and returns `{ review, property: { averageRating, reviewCount } }`. `PATCH` and `DELETE` on `/api/reviews/:id` guard ownership against the session (no admin bypass — admin PATCH/DELETE on another's review returns 403 verified end-to-end), call `recalcPropertyRating` after every mutation, and return the updated denorm pair. Reused the Phase 1 `lib/rating.ts` `recalcPropertyRating` as-is; its existing empty-aggregation guard handles last-review-deleted (0/0). Components: `StarRating` (read-only, `role="img"` with `aria-label="Rated X.X out of 5 from N reviews"`), `StarInput` (five `role="radio"` buttons in a `role="radiogroup" aria-label="Rating"`, roving tabindex, Arrow/Home/End keyboard operation, verified live via Playwright keyboard press), `ReviewForm` using RHF+zodResolver with Controller on both rating (StarInput) and comment (Textarea with live char counter), `ReviewItem` with Base-UI `AlertDialog` for destructive confirm, `ReviewList` with pinned myReview + prev/next pagination, `ReviewSection` as the three-variant orchestrator (guest / logged-in-no-review / logged-in-has-review). `useReviews` hook family mirrors `useFavorites`: list query gated via `useAuth` (`enabled: !!user`), mutations call `patchPropertyCache(["property", id])` on success so the detail-page rating chip updates without a refetch (verified live — chip went 5.0 → 3.0 within ~1s). The detail page's "Log in to read and write reviews." placeholder slot (lines 219-252) replaced by `<ReviewSection .../>`; `usePathname` import dropped (now used inside `ReviewSection`). End-to-end verified via Playwright + mongodb MCP: guest sees login prompt and nothing else, API 401; logged-in user posts 5★ review, chip updates to 5.0 (1); duplicate POST returns 409 `REVIEW_EXISTS`; two concurrent POSTs on a different property yield exactly one 201 + one 409 (compound unique index enforced under race); edit flips rating in DB and chip within ~1s; admin sees other user's review with NO Edit/Delete controls; admin PATCH and DELETE both return 403, review unchanged; owner delete returns `{deleted:true, property:{0,0}}`; "No reviews yet. Be the first." empty state and "No ratings yet" summary render after delete. `npx tsc --noEmit`, `npm run lint`, and `npm run build` all clean; zero `any` in domain code.
+
+---
 
 ### Phase 4 — User Features (2026-10-15)
 
@@ -75,6 +83,21 @@ Scaffolded Next.js 16.4 (App Router, TypeScript, Tailwind v4, ESLint, Turbopack)
 ---
 
 ## Decisions log
+
+### 2026-10-15 — Review POST catches 11000 even with the pre-check; same `REVIEW_EXISTS` message
+- Decision: `app/api/properties/[id]/reviews/route.ts` POST does `Review.exists({ property, user })` first (409 clean error), then wraps `Review.create` in try/catch and translates `err.code === 11000` into the SAME 409 message. The pre-check is for UX clarity under single-request flows; the unique index catch is what actually protects against the race.
+- Reason: `docs/DATABASE.md §5` explicitly requires both. Verified via `Promise.all` of two identical POSTs — exactly one 201 and one 409, one review doc in Mongo.
+- Affects: `app/api/properties/[id]/reviews/route.ts`.
+
+### 2026-10-15 — Admin NOT exempt from review ownership check
+- Decision: `app/api/reviews/[id]/route.ts` PATCH + DELETE compare `review.user.toString() !== session.sub` without a role bypass. Admin trying to edit or delete another user's review gets 403.
+- Reason: BR-5 and `docs/API.md §6` both state admin is not exempt. Verified end-to-end: admin logged in, PATCH + DELETE on another user's review both returned 403 and the doc was unchanged.
+- Affects: `app/api/reviews/[id]/route.ts`. Phase 7 polish must not add an admin bypass.
+
+### 2026-10-15 — Rating chip updates via `qc.setQueryData(["property", id])` after review mutations
+- Decision: `hooks/use-reviews.ts` writes directly into the `["property", propertyId]` cache in each mutation's `onSuccess` using the `data.property` denorm pair from the API response. `onSettled` also invalidates both `["reviews", propertyId]` and `["property", propertyId]`.
+- Reason: Mirrors the Phase 4 `useToggleFavorite` pattern. The detail page's rating chip reads from `useProperty` which is the same cache key, so updates land in the same tick with no refetch wait. Verified: chip went 5.0 → 3.0 within ~1s on edit.
+- Affects: `hooks/use-reviews.ts`, `app/(public)/properties/[id]/page.tsx`.
 
 ### 2026-10-15 — Cloudinary folder convention: `realestate/avatars`, Phase 6 uses `realestate/properties`
 - Decision: Avatars upload to `realestate/avatars` (one shared folder, Cloudinary generates per-asset public_ids). Property images in Phase 6 will use `realestate/properties`. Both go through the same `ImageUpload` component with a different `folder` prop.
@@ -247,6 +270,12 @@ Scaffolded Next.js 16.4 (App Router, TypeScript, Tailwind v4, ESLint, Turbopack)
 
 ## Things to remember for next session
 
+- [2026-10-15] Phase 5 verification bumped the second user (`ankitkumar977114@gmail.com`) to `isEmailVerified: true` and set its password hash to the admin's (`Phase4Test!`). Both users now share that password. Change if needed.
+- [2026-10-15] All reviews collection is empty as of Phase 5 completion. The seed Mumbai 2BHK property's rating chip is NOT verified at a non-zero rating state in the current DB; the live-update code path WAS verified during Phase 5 testing.
+- [2026-10-15] `useReviews` hook family in `hooks/use-reviews.ts`: list key `["reviews", propertyId, page]`, mutation `onSuccess` patches the `["property", propertyId]` cache so the detail-page chip updates without a refetch. Phase 6 admin review list, if ever added, must NOT reuse this cache key — admin surfaces should have their own key.
+- [2026-10-15] `components/review/review-section.tsx` is the ONLY place that renders the guest login prompt. Phase 3's detail page used to carry the prompt inline; Phase 5 moved it into ReviewSection. `usePathname` and `Link` + `buttonVariants` for the login-prompt are now only in ReviewSection, not in the detail page.
+- [2026-10-15] StarInput uses roving tabindex pattern (one `tabIndex=0` at the "current" button, others `-1`). Arrow/Home/End handled via `onKeyDown` on the `role="radiogroup"` wrapper. Enter is a no-op — form submission handles enter via the regular submit button.
+- [2026-10-15] Review form uses RHF `Controller` for BOTH rating (StarInput) and comment (Textarea) — not `register`. Reason: React Compiler's `react-hooks/incompatible-library` warns on `useForm().watch()`. Controller avoids watch entirely; `field.value` provides the live char count.
 - [2026-10-15] `useFavorites()` is gated on `useAuth()` (`enabled: !!user`). Guests calling it never fire a network request. Phase 5's review hooks can mirror this pattern — don't fetch for guests.
 - [2026-10-15] `useToggleFavorite` writes two optimistic caches: `["favorites"]` and `["property", id]`. If Phase 5 adds another surface showing favorite state (e.g. a profile favorites count card), either read from `["favorites"]` or add a snapshot in the mutation's `onMutate`.
 - [2026-10-15] `ImageUpload` is reusable — Phase 6's property form drops in with `multiple` support TBD. If multiple images are required, consider extending the component or wrapping it; the single-file API is set.
