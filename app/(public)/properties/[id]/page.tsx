@@ -1,17 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { notFound, useRouter, usePathname } from "next/navigation";
+import { notFound, usePathname } from "next/navigation";
 import { Suspense, use } from "react";
 import { toast } from "sonner";
-import { Phone, MessageCircle, Share2, Heart, Star, Eye } from "lucide-react";
-import { cn } from "cn";
+import { Phone, MessageCircle, Share2, Star, Eye } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { PropertyGallery } from "@/components/property/property-gallery";
+import { FavoriteButton } from "@/components/property/favorite-button";
 import { ErrorState } from "@/components/shared/error-state";
 import { useProperty } from "@/hooks/use-properties";
-import { useAuth } from "@/hooks/use-auth";
 import { formatPriceINRFull } from "@/lib/format";
 import { buildWaLink } from "@/lib/format";
 
@@ -33,10 +32,7 @@ export default function PropertyDetailPage({
 
 function PropertyDetailInner({ params }: { params: Promise<PageParams> }) {
   const { id } = use(params);
-  const router = useRouter();
   const pathname = usePathname();
-  const { data: me } = useAuth();
-  const isLoggedIn = Boolean(me);
 
   const query = useProperty(id);
 
@@ -68,14 +64,6 @@ function PropertyDetailInner({ params }: { params: Promise<PageParams> }) {
     pageUrl,
     property.title,
   );
-
-  const handleFavorite = () => {
-    if (!isLoggedIn) {
-      router.push(`/login?next=${encodeURIComponent(pathname)}`);
-      return;
-    }
-    // Phase 4 wires the favorite mutation here.
-  };
 
   const handleCopyLink = async () => {
     try {
@@ -220,20 +208,12 @@ function PropertyDetailInner({ params }: { params: Promise<PageParams> }) {
               <MessageCircle className="h-4 w-4" />
               Share on WhatsApp
             </a>
-            <Button
-              variant="outline"
-              size="lg"
-              onClick={handleFavorite}
-              aria-pressed={isFavorited}
-            >
-              <Heart
-                className={cn(
-                  "h-4 w-4",
-                  isFavorited ? "fill-destructive stroke-destructive" : "",
-                )}
-              />
-              {isFavorited ? "Saved" : "Save"}
-            </Button>
+            <FavoriteButton
+              propertyId={property._id}
+              isFavorited={isFavorited}
+              variant="detail"
+              title={property.title}
+            />
           </section>
 
           <section className="mt-12 border-t border-border pt-10">

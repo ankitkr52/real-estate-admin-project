@@ -7,12 +7,11 @@ import { CtaBanner } from "@/components/home/cta-banner";
 import { Footer } from "@/components/layout/footer";
 import { PropertyGrid } from "@/components/property/property-grid";
 import { useProperties } from "@/hooks/use-properties";
-import { useAuth } from "@/hooks/use-auth";
+import { useFavorites } from "@/hooks/use-favorites";
 
 export default function HomePage() {
   const newest = useProperties({ limit: 6, sort: "newest" });
-  const { data: me } = useAuth();
-  const isLoggedIn = Boolean(me);
+  const { favoriteIds } = useFavorites();
 
   return (
     <>
@@ -53,7 +52,7 @@ export default function HomePage() {
             properties={newest.data?.properties}
             isLoading={newest.isLoading}
             isError={newest.isError}
-            isLoggedIn={isLoggedIn}
+            favoriteIds={favoriteIds}
             skeletonCount={6}
             onRetry={() => newest.refetch()}
             emptyTitle="New listings coming soon"

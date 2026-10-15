@@ -8,12 +8,11 @@ import { PropertyGrid } from "@/components/property/property-grid";
 import { Pagination } from "@/components/property/pagination";
 import { useProperties } from "@/hooks/use-properties";
 import { usePropertyFilters } from "@/hooks/use-property-filters";
-import { useAuth } from "@/hooks/use-auth";
+import { useFavorites } from "@/hooks/use-favorites";
 
 function PropertiesListing() {
   const { filters, clearAll } = usePropertyFilters();
-  const { data: me } = useAuth();
-  const isLoggedIn = Boolean(me);
+  const { favoriteIds } = useFavorites();
 
   const query = useProperties(filters);
   const page = Number(filters.page ?? 1);
@@ -55,7 +54,7 @@ function PropertiesListing() {
         isLoading={query.isLoading}
         isError={query.isError}
         isPreviousData={query.isPlaceholderData}
-        isLoggedIn={isLoggedIn}
+        favoriteIds={favoriteIds}
         onRetry={() => query.refetch()}
         onClearFilters={clearAll}
       />

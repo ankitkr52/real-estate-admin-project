@@ -9,7 +9,7 @@ type Props = {
   properties?: PropertyCardData[];
   isLoading: boolean;
   isError: boolean;
-  isLoggedIn: boolean;
+  favoriteIds?: Set<string>;
   isPreviousData?: boolean;
   skeletonCount?: number;
   onRetry?: () => void;
@@ -22,7 +22,7 @@ export function PropertyGrid({
   properties,
   isLoading,
   isError,
-  isLoggedIn,
+  favoriteIds,
   isPreviousData,
   skeletonCount = 12,
   onRetry,
@@ -59,7 +59,11 @@ export function PropertyGrid({
       className={`grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6 lg:grid-cols-3 ${isPreviousData ? "opacity-60 transition-opacity" : ""}`}
     >
       {properties.map((p) => (
-        <PropertyCard key={p._id} property={p} isLoggedIn={isLoggedIn} />
+        <PropertyCard
+          key={p._id}
+          property={p}
+          isFavorited={favoriteIds?.has(p._id) ?? false}
+        />
       ))}
     </div>
   );

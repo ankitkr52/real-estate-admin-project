@@ -36,13 +36,19 @@ Open questions:
 
 ## Current phase
 
-**Phase 4 — User Features. Not started.**
+**Phase 5 — Reviews. Not started.**
 
-Next step: read `docs/DEVELOPMENT-PLAN.md`, Phase 4, and `docs/API.md` sections 4 and 6. Phase 3 shipped the two public property endpoints, the home / listing / detail pages, the shared empty/error primitives, and the footer. The favorite heart renders on the card and detail page but is NOT wired — guest tap redirects to `/login?next=…`; Phase 4 wires the mutation. The reviews slot on the detail page is a bordered log-in prompt; Phase 5 fills it.
+Next step: read `docs/DEVELOPMENT-PLAN.md`, Phase 5, and `docs/API.md` section 6. Phase 4 shipped three favorites endpoints, one profile PATCH, the `/favorites` and `/profile` pages, the shared `FavoriteButton` and `ImageUpload` components, and the `useFavorites` + `useToggleFavorite` hooks. The reviews slot on the detail page is still a bordered log-in prompt; Phase 5 fills it with the review section, star rating UI, and the review Zod schema + POST/PATCH/DELETE/GET endpoints.
 
 ---
 
 ## Last completed phase
+
+### Phase 4 — User Features (2026-10-15)
+
+Three favorites endpoints: `GET /api/user/favorites` populates with a `match: { status: "published" }` + `select: CARD_FIELDS` populate and filters nulls to drop deleted or unpublished refs; `POST /api/user/favorites/:propertyId` validates ObjectId, checks a published property exists (404 `PROPERTY_NOT_FOUND` otherwise), then `$addToSet` for idempotence; `DELETE` validates ObjectId only and `$pull`s so stale favorites can be cleared. `PATCH /api/user/profile` uses Zod's default strip-extras behavior: `profileUpdateSchema` only declares name/phone/avatar, so sending email/role/isEmailVerified/favorites in the body silently drops them before `findByIdAndUpdate`. `lib/cloudinary.ts` is a 60-line client-only helper (`CLOUDINARY_CLOUD`/`CLOUDINARY_PRESET` constants, `isAcceptedImage(file)` for the 2MB + image/* check, `uploadToCloudinary(file, folder, onProgress?)` via `XMLHttpRequest` for real progress). No server-side Cloudinary wrapper exists — the API only ever receives the `secure_url`. `components/property/favorite-button.tsx` is one component with `variant: "card" | "detail"` serving both the overlay heart on the card and the outlined Save/Saved button on the detail page; it reads `useAuth()` for the guest-redirect, uses `useToggleFavorite()` for the mutation. `hooks/use-favorites.ts` exports `useFavorites()` (query `["favorites"]`, enabled only when logged in, returns `{ data, favoriteIds: Set<string> }`) and `useToggleFavorite()` (optimistic across `["favorites"]` and `["property", id]`, rollback + toast on error, invalidate `onSettled`). `components/shared/image-upload.tsx` is reusable (circle for avatar, rect for Phase 6 property images), drag-and-drop + click, client-side validation, progress overlay. `/favorites` renders a 3/2/1 grid with a header count, a 6-skeleton loading state, an EmptyState, and a slide-out animation driven by an `useEffect`-based diff of the TanStack cache against the previously-rendered ids (removed ids are marked leaving, delayed 220ms, then removed from local render list). `/profile` is a full client page using `useAuth`, RHF + `profileUpdateSchema` resolver, and a `useMutation` that `qc.setQueryData(["auth","me"], newUser)` on success — nav avatar updates on the same tick. End-to-end verified via Playwright: guest heart redirects to `/login?next=/properties` with zero favorites API calls; logged-in heart flips optimistically and persists to the user doc; two POSTs produce one entry (`$addToSet`); unauth 401 on all three endpoints; invalid ObjectId 400; draft property 404 on POST; unpublished favorite disappears from `/favorites` and returns on re-publish; a non-existent ObjectId injected into the user's favorites is filtered out and the list does not error; direct Cloudinary unsigned upload lands in `realestate/avatars/` and PATCH persists the `secure_url`; email/role/isEmailVerified sent in the PATCH body are stripped (DB unchanged); name="A" returns 400 with the field error. `npx tsc --noEmit`, `npm run lint`, and `npm run build` all clean; zero `any` in domain code.
+
+---
 
 ### Phase 3 — Public Browsing (2026-10-14)
 
@@ -69,6 +75,26 @@ Scaffolded Next.js 16.4 (App Router, TypeScript, Tailwind v4, ESLint, Turbopack)
 ---
 
 ## Decisions log
+
+### 2026-10-15 — Cloudinary folder convention: `realestate/avatars`, Phase 6 uses `realestate/properties`
+- Decision: Avatars upload to `realestate/avatars` (one shared folder, Cloudinary generates per-asset public_ids). Property images in Phase 6 will use `realestate/properties`. Both go through the same `ImageUpload` component with a different `folder` prop.
+- Reason: Unsigned preset in use (`realestate_unsigned`) accepts a `folder` form param and places each asset accordingly. Splitting avatars from property images keeps the two concerns separately listable/deletable in Cloudinary. Not per-user subfolders (`realestate/avatars/<user-id>`) because the user-id is a Mongo ObjectId and `public_id` is the stable asset identity — no retrieval advantage from grouping.
+- Affects: `components/shared/image-upload.tsx` (`folder` prop), `app/(public)/profile/page.tsx` (passes `"realestate/avatars"`), future Phase 6 property form (passes `"realestate/properties"`).
+
+### 2026-10-15 — Favorite logic shared via `FavoriteButton` + `useToggleFavorite`, not through PropertyGrid.isLoggedIn
+- Decision: `components/property/favorite-button.tsx` with `variant: "card" | "detail"` is the one component the card and detail page use. `PropertyGrid` lost the `isLoggedIn` prop in favor of an optional `favoriteIds?: Set<string>`. Home and listing pages call `useFavorites()` once (enabled only when logged in) and pass the Set down. The button reads auth itself for the guest-redirect.
+- Reason: One source of truth for the mutation (`useToggleFavorite`), one source of truth for the pre-fill state (`useFavorites`). The previous Phase 3 wiring threaded `isLoggedIn` through grid → card so each card could redirect; that information is already in `useAuth()` which the button reads directly.
+- Affects: `components/property/property-card.tsx` (dropped `isLoggedIn` prop + inline handler), `components/property/property-grid.tsx` (prop swap), `app/(public)/page.tsx` and `app/(public)/properties/page.tsx` (now call `useFavorites()`), `app/(public)/properties/[id]/page.tsx` (dropped the inline Save handler).
+
+### 2026-10-15 — Zod's default strip-extras is the whole strip-fields guard
+- Decision: `lib/validations/user.ts` `profileUpdateSchema` declares only name/phone/avatar; no manual `delete payload.email`, no `.strict()`. The API hands `parsed.data` to `findByIdAndUpdate`.
+- Reason: Zod `.object()` strips unknown keys by default — a client sending `{ email, role, isEmailVerified }` has those fields dropped before any Mongoose code runs. Verified in the Phase 4 strip test (DB unchanged). One source of truth, one fewer branch.
+- Affects: `lib/validations/user.ts`, `app/api/user/profile/route.ts`.
+
+### 2026-10-15 — Favorites slide-out driven by diffing TanStack cache against previous rendered ids
+- Decision: `/favorites` keeps a local `rendered: PropertyCardData[]` and a `leaving: Set<string>`. A `useEffect` on `data` computes `removed = prevIds - nextIds`; if any, flag them leaving, wait 220ms, then commit `rendered = data`. Entering items (new favorites) skip the delay.
+- Reason: The mutation hook already optimistically drops favorited items from `["favorites"]`, so a straight `.map(data)` would unmount instantly with no visible exit. The leaving-set lets the straight optimistic flow work and the exit CSS transition still play. No extra prop plumbing into FavoriteButton or the card.
+- Affects: `app/(public)/favorites/page.tsx`.
 
 ### 2026-10-14 — Home hero is custom (framed stillness), no Aceternity, no framer-motion
 - Decision: `components/home/hero.tsx` is a hand-rolled framed hero: one full-bleed Cloudinary architectural photo (from the seed set) inside a `rounded-[32px]` container, dark gradient scrim bottom-to-top, Fraunces display headline, Inter subhead, one amber CTA to `/properties`, three stat badges (Properties count via `/api/properties?limit=1`, `CITIES.length`, "Verified listings 100%"). Motion is `tw-animate-css` fade+slide-in-up on headline/CTA/stats, disabled by `motion-reduce:`.
@@ -221,6 +247,12 @@ Scaffolded Next.js 16.4 (App Router, TypeScript, Tailwind v4, ESLint, Turbopack)
 
 ## Things to remember for next session
 
+- [2026-10-15] `useFavorites()` is gated on `useAuth()` (`enabled: !!user`). Guests calling it never fire a network request. Phase 5's review hooks can mirror this pattern — don't fetch for guests.
+- [2026-10-15] `useToggleFavorite` writes two optimistic caches: `["favorites"]` and `["property", id]`. If Phase 5 adds another surface showing favorite state (e.g. a profile favorites count card), either read from `["favorites"]` or add a snapshot in the mutation's `onMutate`.
+- [2026-10-15] `ImageUpload` is reusable — Phase 6's property form drops in with `multiple` support TBD. If multiple images are required, consider extending the component or wrapping it; the single-file API is set.
+- [2026-10-15] Admin password was rotated during Phase 4 verification: now `Phase4Test!` for `ankit72p@gmail.com`. Change again as needed; the Phase 1 seed never overwrites the admin password.
+- [2026-10-15] The Phase 2 memo mentioned `.env.local` admin password was `realestate12.` — superseded, no longer valid. Use the current password or reset via mongodb bcrypt.
+- [2026-10-15] Dev server already runs under a parent process on port 3000; a background `npm run dev` will error "Another next dev server is already running". Use the running server at `http://localhost:3000` directly.
 - [2026-10-14] The 6 seed property `_id`s are now stable at: Mumbai 2BHK `6acf66b5231ebbe4c355d1ae`, Indiranagar 3BHK (draft) `6acf66b5231ebbe4c355d1af`, Pune Garden House `6acf66b5231ebbe4c355d1b0`, Hyderabad Villa `6acf66b5231ebbe4c355d1b1`, Chennai Plot `6acf66b5231ebbe4c355d1b2`, Delhi Office (draft) `6acf66b5231ebbe4c355d1b3`. 4 published, 2 draft. Will change after any drop+reseed.
 - [2026-10-14] Property-list card payload is intentionally stripped of `description`, `images`, `address`, `contactPhone`, `contactWhatsApp`, `viewCount`. Only the detail endpoint returns them. Phase 4 favorites list must either call the detail endpoint per item or we extend the card payload — the latter changes the frozen contract, so flagged.
 - [2026-10-14] Hero and bento city imagery is hardcoded Cloudinary URLs from the seed set (`realestate/seed/*`). The bento maps 5 cities to images (Mumbai, Bengaluru, Delhi, Pune, Hyderabad); the remaining 3 CITIES (Chennai, Kolkata, Ahmedabad) have no bento tile — the bento is a fixed 5-tile layout per UI-UX §3.4.

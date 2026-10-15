@@ -1,40 +1,23 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter, usePathname, useSearchParams } from "next/navigation";
-import { ArrowUpRight, Heart, Star } from "lucide-react";
-import { cn } from "cn";
+import { ArrowUpRight, Star } from "lucide-react";
 import { formatPriceINRShort } from "@/lib/format";
 import { Skeleton } from "@/components/ui/skeleton";
+import { FavoriteButton } from "@/components/property/favorite-button";
 import type { PropertyCardData } from "@/types/property";
 
 type Props = {
   property: PropertyCardData;
-  isLoggedIn: boolean;
   isFavorited?: boolean;
 };
 
 const BHK_HIDDEN = new Set(["Plot", "Commercial"]);
 
-export function PropertyCard({ property, isLoggedIn, isFavorited = false }: Props) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-
+export function PropertyCard({ property, isFavorited = false }: Props) {
   const showRating = property.reviewCount > 0;
   const showBhk = property.bhk !== undefined && !BHK_HIDDEN.has(property.type);
   const alt = `${property.title} in ${property.city}`;
-
-  function handleHeartClick(e: React.MouseEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    if (!isLoggedIn) {
-      const current = `${pathname}${searchParams.toString() ? `?${searchParams.toString()}` : ""}`;
-      router.push(`/login?next=${encodeURIComponent(current)}`);
-      return;
-    }
-    // Phase 4 wires the favorite mutation here.
-  }
 
   return (
     <Link
@@ -49,20 +32,12 @@ export function PropertyCard({ property, isLoggedIn, isFavorited = false }: Prop
           className="h-full w-full object-cover transition-transform duration-200 ease-out group-hover:scale-[1.03] motion-reduce:transition-none motion-reduce:group-hover:scale-100"
           loading="lazy"
         />
-        <button
-          type="button"
-          aria-label={isFavorited ? `Remove ${property.title} from favorites` : `Save ${property.title}`}
-          aria-pressed={isFavorited}
-          onClick={handleHeartClick}
-          className="absolute top-3 right-3 inline-flex h-11 w-11 items-center justify-center rounded-full bg-background/90 backdrop-blur-sm transition-colors hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-secondary focus-visible:ring-offset-2"
-        >
-          <Heart
-            className={cn(
-              "h-5 w-5",
-              isFavorited ? "fill-destructive stroke-destructive" : "stroke-foreground",
-            )}
-          />
-        </button>
+        <FavoriteButton
+          propertyId={property._id}
+          isFavorited={isFavorited}
+          variant="card"
+          title={property.title}
+        />
         {showRating ? (
           <div
             className="absolute left-3 top-3 inline-flex items-center gap-1 rounded-[var(--radius-sm)] bg-background/90 px-2 py-1 text-xs font-medium backdrop-blur-sm"
